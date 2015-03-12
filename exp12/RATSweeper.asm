@@ -1,7 +1,6 @@
 ;- Programmers: Spencer Chang
 ;-				Nick Avila
 ;-
-;-
 ;- Project Title: RAT Sweeper
 ;- Date: Winter 2015
 ;- Class: CPE 233-03/04
@@ -240,31 +239,31 @@ mark_visited:
 	ADD		r31, VISIT_MASK					; Make r31 visited
 	ST		r31, (r10)						; Put r31 back into the memory address
 	CALL	draw_cell_color_unset			; Color the Cell correctly.
-	CALL	visit_neighbors					; 
+	CALL	visit_neighbors					; This checks the blocks surround the cell at r10.
 scroll_table:
 	POP		r31
 	MOV		r10, 0x00
 scroll_loop:
-	CMP		r10, MAP_LENGTH
-	BREQ	mv_exit
-	LD		r30, (r10)
-	PUSH	r30
-	AND		r31, NUM_MASK
-	CMP		r30, r31
-	BRNE	sl_end
-	CALL	visit_test
-	BRNE	sl_end
-	POP		r30
-	ADD		r30, VISIT_MASK
-	ST		r30, (r10)
-	CALL	loc_to_coord
-	CALL	visit_neighbors
-	ADD		r10, 0x01
-	BRN		scroll_loop
+	CMP		r10, MAP_LENGTH					; Has r10 reached 0x64
+	BREQ	mv_exit							; If so, exit 'mark_visited'
+	LD		r30, (r10)						; Else, load the value AT r10 into r30
+	PUSH	r30								; Save r30 (necessary? It doesn't get tweaked later)
+	AND		r31, NUM_MASK					; Mask the NUMBER bits
+	CMP		r30, r31						; If r30 != r31,
+	BRNE	sl_end							; Branch to scroll_loop_end
+	CALL	visit_test						; Else test if we can "visit" the square
+	BRNE	sl_end							; If not, go to scroll_loop_end
+	POP		r30								; Restore r30 (Is this necessary?)
+	ADD		r30, VISIT_MASK					; Set the VISIT bit of r30
+	ST		r30, (r10)						; Store the new binary format from r30 AT r10
+	CALL	loc_to_coord					; Convert to memory address value from coords
+	CALL	visit_neighbors					; Check if neighbors need to be visited
+	ADD		r10, 0x01						; Increment the memory address
+	BRN		scroll_loop						; Branch and be on your merry way.
 sl_end:
-	ADD		r10, 0x01
-	POP		r30
-	BRN		scroll_loop
+	ADD		r10, 0x01						; Increment memory adddress
+	POP		r30								; Restore r30
+	BRN		scroll_loop						; Branch and be on your merry way.
 visit_num:
 	LD		r31, (r10)						; Grab value at r10 and put into temp reg
 	ADD		r31, VISIT_MASK					; Assert the VISIT bit
@@ -286,7 +285,8 @@ mv_exit:
 visit_neighbors:
 	PUSH	r31								; Save r31
 	PUSH	r10								; Save r10
-check_top:				; Checks above
+
+check_top:									; CHECK THE TOP SIDE
 	PUSH	r9								; Save r9 (Y)
 	SUB		r9, 0x01						; Move up one row
 	BRCS	check_left						; If at top of board, check other spaces.
@@ -297,44 +297,47 @@ check_top:				; Checks above
 	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
 	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
 	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
-check_left:				; Checks to left
+
+check_left:									; CHECK THE LEFT SIDE
+	POP		r9								; Restore r9
+	PUSH	r8								; Save r8 (X)
+	SUB		r8, 0x01						; Move left one column
+	BRCS	check_bottom					; If no space to check left side, move to bottom
+	CALL	coord_to_loc					; Else, convert to the memory address.
+	CALL	visit_test_for_num				; Check if we can visit
+	BRNE	check_bottom					; If not, check other spaces.
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
+check_bottom:								; CHECK THE BOTTOM SIDE
+	POP		r8								; Restore r8
+	PUSH	r9								; Save r9 (Y)
+	ADD		r9, 0x01						; Move down one row
+	CMP		r9, MAP_HEIGHT					; Is r9 greater then the board height?
+	BRCC	check_right						; If so, check last space (right).
+	CALL	coord_to_loc					; Else, convert to the memory address.
+	CALL	visit_test_for_num				; Check if we can visit
+	BRNE	check_right						; If not, check last space (right).
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
+check_right:								; CHECK THE RIGHT SIDE
 	POP		r9
 	PUSH	r8
-	SUB		r8, 0x01
-	BRCS	check_left
-	CALL	coord_to_loc
-	CALL	visit_test_for_num
-	BRNE	check_bottom
-	LD		r31, (r10)
-	ADD		r31, VISIT_MASK
-	ST		r31, (r10)
-	CALL	draw_cell_color_unset
-check_bottom:			; Checks below
-	POP		r8
-	PUSH	r9
-	ADD		r9, 0x01
-	CMP		r9, MAP_HEIGHT
-	BRCC	check_right
-	CALL	coord_to_loc
-	CALL	visit_test_for_num
-	BRNE	check_right
-	LD		r31, (r10)
-	ADD		r31, VISIT_MASK
-	ST		r31, (r10)
-	CALL	draw_cell_color_unset
-check_right:			; Checks to the right
-	POP		r9
-	PUSH	r8
-	ADD		r8, 0x01
-	CMP		r8, MAP_WIDTH
-	BRCC	vn_exit
-	CALL	coord_to_loc
-	CALL	visit_test_for_num
-	BRNE	vn_exit
-	LD		r31, (r10)
-	ADD		r31, VISIT_MASK
-	ST		r31, (r10)
-	CALL	draw_cell_color_unset
+	ADD		r8, 0x01						; Move to next column
+	CMP		r8, MAP_WIDTH					; Is r8 greater than the width of the board?
+	BRCC	vn_exit							; If so, exit this subroutine
+	CALL	coord_to_loc					; Else, convert to the memory address.
+	CALL	visit_test_for_num				; Check if we can visit
+	BRNE	vn_exit							; If not, exit
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
 vn_exit:
 	POP		r8
 	POP		r10
@@ -371,27 +374,27 @@ do_not_visit_num:
 ;	not a mine, and not the numbers 0 through 8. 
 ; ---------------------------------------------------------
 visit_test:
-	PUSH	r31
-	LD		r31, (r10)
-	PUSH	r31
-	AND		r31, VISIT_MASK
-	POP		r31
-	BRNE	do_not_visit
-	PUSH	r31
-	AND		r31, MINE_MASK
-	POP		r31
-	BRNE	do_not_visit
-	AND		r31, NUM_MASK
-	CMP		r31, 0x09
-	BRCS	do_not_visit
-	CMP		r31, 0x10
-	BRCC	do_not_visit
-	TEST	r31, 0x00
-	POP		r31
+	PUSH	r31							; Save r31
+	LD		r31, (r10)					; Load the value AT r10 into r31
+	PUSH	r31							; Save new r31
+	AND		r31, VISIT_MASK				; Mask the Non-VISIT bits
+	POP		r31							; Restore r31 (does not affect Z flag)
+	BRNE	do_not_visit				; If VISIT is 1, go to do_not_visit
+	PUSH	r31							; Save r31
+	AND		r31, MINE_MASK				; Mask Non-MINE bits
+	POP		r31							; Restore r31 (does not affect Z flag)
+	BRNE	do_not_visit				; If MINE is 1, go to do_not_visit
+	AND		r31, NUM_MASK				; Mask Non-NUM bits
+	CMP		r31, 0x09					; The cell a number between 0 and 8?
+	BRCS	do_not_visit				; If so, do not visit
+	CMP		r31, 0x10					; Else, see if it is a flag or mine
+	BRCC	do_not_visit				; If cell is a flag or mine, do not visit
+	TEST	r31, 0x00					; Set the Z flag to be 0
+	POP		r31							; Restore r31
 	RET
 do_not_visit:
-	OR		r31, 0xFF
-	POP		r31
+	OR		r31, 0xFF					; Turn off Z flag.
+	POP		r31							; Restore r31
 	RET
 	
 ; -------------------- loc_to_coord -----------------------------------------------------------
