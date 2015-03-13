@@ -551,11 +551,11 @@ draw_loop:
 	CMP 	r7, MAP_LENGTH		; Scans for the 100th cell
 	BREQ	draw_exit
 	MOV		r6, 0x00
-	ADD		r6, 0x01 ;MAP_START
 	ADD		r6, r7				; This moves your "drawing tool" to the memory location we want.
 	MOV		r10, r6				; Move the Memory address into r10
 	LD		r5, (r6)			; Move the value AT r6 into r5
 	;CALL	coord_decode
+	OR		r5, VISIT_MASK
 	CALL	loc_to_coord		; Convert from memory address in SCRAM to X-Y coord in VGA.
 	CALL	color_decode
 	CALL	draw_cell_color_set
@@ -581,9 +581,11 @@ draw_cell_color_set:
 	CALL	coord_to_fpga_loc
 	;AND		r1,0x3F       ; make sure top 2 bits cleared
 	;AND		r2,0x1F       ; make sure top 3 bits cleared
-	OUT		r1, VGA_LADD ; (Previously VGA_XPORT)
-	OUT		r2, VGA_HADD ; (Previously VGA_YPORT)
-	OUT		r4, VGA_COLOR
+	
+	;OUT		r1, VGA_LADD ; (Previously VGA_XPORT)
+	;OUT		r2, VGA_HADD ; (Previously VGA_YPORT)
+	;OUT		r4, VGA_COLOR
+	CALL	draw_dot
 	RET
 
 ; -------------------- draw_cell_color_unset ---------------------------
@@ -1024,8 +1026,8 @@ start:   MOV   r15,r21                   ; load current row count
 ;- Tweaked registers: r13,r24
 ;---------------------------------------------------------------------
 draw_dot: 
-           MOV   r13,r15         ; copy Y coordinate
-           MOV   r24,r16         ; copy X coordinate
+           MOV   r13,r2         ; copy Y coordinate-----
+           MOV   r24,r1         ; copy X coordinate-----
 
            AND   r24,0x3F       ; make sure top 2 bits cleared
            AND   r13,0x1F       ; make sure top 3 bits cleared
@@ -1036,7 +1038,7 @@ t1:        LSR   r13
 
 dd_out:    OUT   r24,VGA_LADD   ; write bot 8 address bits to register
            OUT   r13,VGA_HADD   ; write top 3 address bits to register
-           OUT   r14,VGA_COLOR  ; write data to frame buffer
+           OUT   r4,VGA_COLOR  ; write data to frame buffer-----
            RET
 
 dd_add40:  OR    r24,0x40       ; set bit if needed
