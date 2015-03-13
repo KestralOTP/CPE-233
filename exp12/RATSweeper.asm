@@ -102,7 +102,8 @@
 .EQU VISIT_MASK	= 0x80					; This is the number indicating visits
 .EQU NUM_MASK	= 0x0F					; Checks how many mines are around cell
 
-.EQU UNVISITED = 0x8A					; Color of unvisited squares. (change)
+;.EQU UNVISITED = 0x8A					; Color of unvisited squares. (change) Purplish
+.EQU UNVISITED = 0x49					; Dark Gray
 .EQU VISITED   = 0xFF					; Color of visited squares. (change)
 ;-------------------------------------------------------------------
 
@@ -114,7 +115,7 @@ map:
  .DB 0x20, 0x02, 0x0A, 0x0A, 0x0A, 0x0A, 0x01, 0x02, 0x20, 0x02
  .DB 0x01, 0x01, 0x01, 0x02, 0x03, 0x02, 0x01, 0x02, 0x20, 0x02
  .DB 0x0B, 0x0B, 0x02, 0x20, 0x20, 0x20, 0x02, 0x01, 0x02, 0x20
- .DB 0x0B, 0x0B, 0x03, 0x20, 0x08, 0x20, 0x03, 0x0D, 0x0D, 0x0D
+ .DB 0x0B, 0x0B, 0x03, 0x20, 0x08, 0x20, 0x03, 0x0D, 0x01, 0x01
  .DB 0x0B, 0x0B, 0x02, 0x20, 0x20, 0x20, 0x02, 0x0D, 0x0D, 0x0D
  .DB 0x0B, 0x0B, 0x01, 0x02, 0x03, 0x02, 0x01, 0x01, 0x01, 0x01
  .DB 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x01, 0x20, 0x01
@@ -188,30 +189,35 @@ map:
 ; 	 between cell coordinate to screen coordinate, which is what coord_to_fpga_loc does for you.
 ;
 ; ===================================================================================================================
-init:	 MOV    r15, 0x0A         ;- starting y value (middle row)
+init:	 CALL	draw_screen
+		 BRN	init
+		 MOV    r15, 0x0A         ;- starting y value (middle row)
          MOV    r16, 0x0A         ;- starting x value (middle column)
          MOV    r23, 0x00         ;- clear interrupt flag register
 		 MOV 	r26, 0x00
 
-         MOV    r14, BG_COLOR     ;- bluish color
-         CALL   draw_background  ;- draw using default color
+;         MOV    r14, BG_COLOR     ;- bluish color
+;         CALL   draw_background  ;- draw using default color
 
          MOV    r14, BG_COLOR     ;- dark Gray color
 		 MOV	r18, r14			 ;- saves background color
 		 EXOR	r14, 0xFF
 		 MOV	r18,r14
-         CALL   draw_dot         ;- plop down intial shape
-         IN     r20,SWITCHES     ;- store current switch settings
+;         CALL   draw_dot         ;- plop down intial shape
+;         IN     r20,SWITCHES     ;- store current switch settings
+		 CALL mines_key
          SEI                     ;- allow interrupts
 
 main:
-	MOV		r8, 0x02			; Starting X coord
-	MOV		r9, 0x00			; Starting Y coord
-	CALL	mark_visited		; Main subroutine for marking visited memory cells
-	CALL	draw_screen			; Redraw the screen to catch updates of the game (See if we can just draw one bit at a time until we reveal squares?)
-	IN		r0, 0x00			; Used for debugging purposes and is for the Sweeper Game state
+	MOV		r8, 0x08			; Starting X coord
+	MOV		r9, 0x05			; Starting Y coord
+	CALL	coord_to_fpga_loc
+	CALL	draw_cell_color_set
+	;CALL	mark_visited		; Main subroutine for marking visited memory cells
+	;CALL	draw_screen			; Redraw the screen to catch updates of the game (See if we can just draw one bit at a time until we reveal squares?)
+	;IN		r0, 0x00			; Used for debugging purposes and is for the Sweeper Game state
 mloop:
-	CALL 	blink				; Blink where our cursor is (need to make sure it links with Nick's coord_to_loc stuff)
+	;CALL 	blink				; Blink where our cursor is (need to make sure it links with Nick's coord_to_loc stuff)
 	BRN 	main				; Continue looping back through the entire thing.
 ;--------------------------------------------------------------------------------
 ;- Main Game Logic: Flag and Mine placement
@@ -247,7 +253,7 @@ scroll_loop:
 	CMP		r10, MAP_LENGTH					; Has r10 reached 0x64
 	BREQ	mv_exit							; If so, exit 'mark_visited'
 	LD		r30, (r10)						; Else, load the value AT r10 into r30
-	PUSH	r30								; Save r30 (necessary? It doesn't get tweaked later)
+	PUSH	r30								; Save r30 (necessary? It doesn't get tweaked in between)
 	AND		r31, NUM_MASK					; Mask the NUMBER bits
 	CMP		r30, r31						; If r30 != r31,
 	BRNE	sl_end							; Branch to scroll_loop_end
@@ -330,14 +336,90 @@ check_right:								; CHECK THE RIGHT SIDE
 	PUSH	r8
 	ADD		r8, 0x01						; Move to next column
 	CMP		r8, MAP_WIDTH					; Is r8 greater than the width of the board?
-	BRCC	vn_exit							; If so, exit this subroutine
+	;BRCC	vn_exit							; If so, exit this subroutine
+	BRCC	check_top_right
 	CALL	coord_to_loc					; Else, convert to the memory address.
 	CALL	visit_test_for_num				; Check if we can visit
-	BRNE	vn_exit							; If not, exit
+	;BRNE	vn_exit							; If not, exit
+	BRNE	check_top_right
 	LD		r31, (r10)						; Put value AT r10 into r31
 	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
 	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
 	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
+check_top_right:							; CHECK THE TOP-RIGHT
+	POP		r8
+	PUSH	r9
+	PUSH	r8
+	ADD		r8, 0x01
+	SUB		r9, 0x01
+	BRCS	vn_exit
+;	BRCS	check_bot_right
+	CMP		r8, MAP_WIDTH
+	BRCC	vn_exit
+;	BRCC	check_bot_right
+	CALL	coord_to_loc
+	CALL	visit_test_for_num
+	BRNE	vn_exit
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
+check_bot_right:
+	POP		r8
+	POP		r9
+	PUSH	r9
+	PUSH	r8
+	ADD		r8, 0x01
+	ADD		r9, 0x01
+	CMP		r8, MAP_WIDTH
+	BRCC	check_top_left
+	CMP		r9, MAP_HEIGHT
+	BRCC	check_top_left
+	CALL	coord_to_loc
+	CALL	visit_test_for_num
+	BRNE	check_top_left
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
+check_top_left:								; CHECK THE TOP-LEFT
+	POP		r8
+	POP		r9
+	PUSH	r9
+	PUSH	r8
+	SUB		r8, 0x01
+	BRCS	check_bot_left
+	SUB		r9, 0x01
+	BRCS	check_bot_left
+	CALL	coord_to_loc
+	CALL	visit_test_for_num
+	BRNE	check_bot_left
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
+check_bot_left:								; CHECK THE BOT-LEFT
+	POP		r8
+	POP		r9
+	PUSH	r9
+	PUSH	r8
+	SUB		r8, 0x01
+	BRCS	check_bot_left
+	ADD		r9, 0x01
+	CMP		r9, MAP_HEIGHT
+	BRCC	check_bot_left
+	CALL	coord_to_loc
+	CALL	visit_test_for_num
+	BRNE	check_bot_left
+	LD		r31, (r10)						; Put value AT r10 into r31
+	ADD		r31, VISIT_MASK					; Assert the VISIT bit.
+	ST		r31, (r10)						; Overwrite the value AT r10 with new value in r31.
+	CALL	draw_cell_color_unset			; Now, color the appropriate color in the cell.
+
 vn_exit:
 	POP		r8
 	POP		r10
@@ -462,16 +544,19 @@ draw_screen:
 	PUSH 	r5					; current memory value
 	PUSH	r6
 	PUSH	r7
+	PUSH	r10
 	MOV		r6, 0x00			; current memory location
 	MOV		r7, 0x00			; map index
 draw_loop:
 	CMP 	r7, MAP_LENGTH		; Scans for the 100th cell
 	BREQ	draw_exit
 	MOV		r6, 0x00
-	ADD		r6, MAP_START
-	ADD		r6, r7
-	LD		r5, (r6)
-	CALL	coord_decode
+	ADD		r6, 0x01 ;MAP_START
+	ADD		r6, r7				; This moves your "drawing tool" to the memory location we want.
+	MOV		r10, r6				; Move the Memory address into r10
+	LD		r5, (r6)			; Move the value AT r6 into r5
+	;CALL	coord_decode
+	CALL	loc_to_coord		; Convert from memory address in SCRAM to X-Y coord in VGA.
 	CALL	color_decode
 	CALL	draw_cell_color_set
 	ADD		r6, MAP_LENGTH
@@ -479,6 +564,7 @@ draw_loop:
 	ADD		r7, 0x01
 	BRN		draw_loop
 draw_exit:
+	POP		r10
 	POP		r7
 	POP		r6
 	POP		r5
@@ -493,10 +579,13 @@ draw_exit:
 ; ----------------------------------------------------------------------
 draw_cell_color_set:
 	CALL	coord_to_fpga_loc
-	OUT		r1, VGA_HADD ; (Previously VGA_XPORT)
-	OUT		r2, VGA_LADD ; (Previously VGA_YPORT)
+	;AND		r1,0x3F       ; make sure top 2 bits cleared
+	;AND		r2,0x1F       ; make sure top 3 bits cleared
+	OUT		r1, VGA_LADD ; (Previously VGA_XPORT)
+	OUT		r2, VGA_HADD ; (Previously VGA_YPORT)
 	OUT		r4, VGA_COLOR
 	RET
+
 ; -------------------- draw_cell_color_unset ---------------------------
 ; See draw_cell_color_set, but sets the appropriate color from (r8, r9)
 ; in r4 before it colors.
@@ -559,15 +648,15 @@ visit_check:
 	BRNE	make_unvisited
 	BRN		c_num_decode
 make_unvisited:
-	MOV		r4, UNVISITED					; Color for unvisited squares.
+	MOV		r4, UNVISITED					; Color for unvisited squares. (fairly dark color)
 	BRN		exit
 c_num_decode:
 	MOV		r3, r5
-	AND		r3, NUM_MASK
+	AND		r3, NUM_MASK					; Decode the color for the number if shown
 c_empty_check:
 	CMP		r3, 0x00
 	BRNE	c_1_check
-	MOV		r4, VISITED						; 
+	MOV		r4, VISITED						; White is the default "visited" color
 	BRN		flag_check
 
 c_1_check:
@@ -740,7 +829,8 @@ exit_delay:		RET
 ;- to be. It will call draw_dot and use registers r18, r19, r20
 ;- both of which have been modified outside the subroutine
 ;- for use.
-;-
+;- May no longer need to be used.
+;- 
 ;- Tweaked Registers: r18, r19, r20
 ;------------------------------------------------------------
 restore_old:		PUSH r14			; Push bg_color
@@ -816,6 +906,9 @@ in_loop:		MOV r14,DGRAY				; Mov mine color into color reg
 ;- so the blit is moved only if there is room to move the 
 ;- blit without going off the screen.  
 ;- 
+;- TO SYNC WITH NICK'S CODE, MAKE THE R15, R16 BE THE REGISTERS
+;- NICK USES FOR THE COORDINATES OF WHERE WE ARE AT (r8 and r9?)
+;-
 ;- Tweaked Registers: possibly r15; possibly r16
 ;------------------------------------------------------------
 sub_x:   CMP   r16,LO_X    ; see if you can move
@@ -1009,20 +1102,23 @@ move_right:
           BRN   reset_ps2_register
 
 reveal_spot:
-         CMP   r12, SPACE				  ;POTENTIAL PROBLEM: When calling "restore_old" in other ISR case statements,
-         BRNE  place_flag				  ;    the color revealed on this space will be overwritten.
-										  ;SOLUTION: r18 holds the secondary color of the tile. Write a few instructions
-										  ;    that will store and save the color of the tile when it's changed.
-		  ;MOV r18, BROWN	 		; Sets the color of flags
-		  ;CALL mark_visited
+         CMP   r12, SPACE			; Check for SPACE BAR
+         BRNE  place_flag			; If this is not the key we are looking for....
+		  LD r31, (r10)				; Get the number from r10
+		  EXOR r31, VISIT_MASK		; Set the flag bit of the number.
+		  ST r31, (r10)				; Overwrite the binary number in memory address.
           CALL  draw_dot            ; draw object
           BRN   reset_ps2_register
 
 place_flag:
-          CMP   r12, ENTER
+          CMP   r12, ENTER	`		; Check for ENTER key
           BRNE  key_up_check
-		   MOV r18, YELLOW
-		   CALL  draw_dot             ; draw object
+		  PUSH r31					; Save r31 value from whatever it was doing.
+		  LD r31, (r10)				; Get the binary number AT r10.
+		  EXOR r31, FLAG_MASK		; Set the flag bit of the number.
+		  ST r31, (r10)				; Store the new binary number AT r10.
+		  POP r31					; Restore r31
+		  CALL  draw_dot            ; draw object
           BRN   reset_ps2_register
 
 
